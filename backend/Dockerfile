@@ -1,4 +1,3 @@
-@ -1,29 +0,0 @@
 # Use official PHP image with FPM
 FROM php:8.2-fpm
 
