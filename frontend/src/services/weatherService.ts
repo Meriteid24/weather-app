@@ -6,6 +6,12 @@ const API = process.env.NEXT_PUBLIC_API_URL;
 
 fetch(`${API}/weather`)
 
+const apiUrl = process.env.NEXT_PUBLIC_API_URL;
+
+fetch(`${apiUrl}/weather`)
+  .then(res => res.json())
+  .then(data => console.log(data));
+
 
 export const fetchWeatherByCity = async (city: string): Promise<WeatherData> => {
   if (!city?.trim()) {
