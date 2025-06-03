@@ -2,6 +2,10 @@ import { WeatherData, ForecastDay } from "@/types/weather";
 import { format, startOfDay } from "date-fns";
 
 const API_URL = '/api';
+const API = process.env.NEXT_PUBLIC_API_URL;
+
+fetch(`${API}/weather`)
+
 
 export const fetchWeatherByCity = async (city: string): Promise<WeatherData> => {
   if (!city?.trim()) {
