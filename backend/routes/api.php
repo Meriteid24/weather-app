@@ -21,6 +21,15 @@ Route::middleware('auth:sanctum')->get('/user', function (Request $request) {
     return $request->user();
 });
 
+// routes/api.php
+const BASE_API_URL = process.env.NEXT_PUBLIC_API_URL || "https://weather-app-hqyy.onrender.com/api";
+Route::get('/geocode', [GeocodeController::class, 'getGeocode'])->name('geocode');
+Route::get('/weather', [WeatherController::class, 'getWeather'])->name('weather');
+Route::middleware(['cors'])->group(function () {
+    Route::get('/geocode', [GeocodeController::class, 'getGeocode']);
+    Route::get('/weather', [WeatherController::class, 'getWeather']);
+});
+
 Route::get('/geocode', function (Request $request) {
     $response = Http::get('http://api.openweathermap.org/geo/1.0/direct', [
         'q' => $request->query('city'),
