@@ -1,18 +1,26 @@
-console.log('API =', process.env.NEXT_PUBLIC_API_URL);
+console.log('API_URL =', process.env.NEXT_PUBLIC_API_URL);
 import { WeatherData, ForecastDay } from "@/types/weather";
 import { format, startOfDay } from "date-fns";
 
-const API_URL = "https://weather-app-hqyy.onrender.com/api";
-const API = process.env.NEXT_PUBLIC_API_URL;
+// Single source of truth for API URL
+const BASE_API_URL = process.env.NEXT_PUBLIC_API_URL || "https://weather-app-hqyy.onrender.com/api";
 
-fetch(`${API}/weather`)
+// Helper function for API calls
+async function fetchApi<T>(endpoint: string, params?: Record<string, string>): Promise<T> {
+  const url = new URL(endpoint, BASE_API_URL);
+  
+  if (params) {
+    Object.entries(params).forEach(([key, value]) => {
+      url.searchParams.append(key, value);
+    });
+  }
 
-const apiUrl = process.env.NEXT_PUBLIC_API_URL;
-
-fetch(`${apiUrl}/weather`)
-  .then(res => res.json())
-  .then(data => console.log(data));
-
+  const response = await fetch(url.toString());
+  if (!response.ok) {
+    throw new Error(`API request failed: ${response.statusText}`);
+  }
+  return response.json();
+}
 
 export const fetchWeatherByCity = async (city: string): Promise<WeatherData> => {
   if (!city?.trim()) {
@@ -21,28 +29,38 @@ export const fetchWeatherByCity = async (city: string): Promise<WeatherData> => 
 
   try {
     // 1. Get location data
-    const geoResponse = await fetch(`${API_URL}/geocode?city=${encodeURIComponent(city.trim())}`);
-    const geoData = await geoResponse.json();
+    const geoData = await fetchApi<any[]>(
+      '/geocode',
+      { city: city.trim() }
+    );
 
-    if (!geoResponse.ok || !geoData?.length) {
+    if (!geoData?.length) {
       throw new Error('Location not found');
     }
 
     const { lat, lon, name: cityName, country } = geoData[0];
 
     // 2. Get weather data
-    const weatherResponse = await fetch(`${API_URL}/weather?lat=${lat}&lon=${lon}&units=metric`);
-    const { current, forecast } = await weatherResponse.json();
+    const { current, forecast } = await fetchApi<{
+      current: any;
+      forecast: { list: any[] };
+    }>(
+      '/weather',
+      { 
+        lat: lat.toString(),
+        lon: lon.toString(),
+        units: 'metric'
+      }
+    );
 
     // 3. Process forecast into unique day summaries
-    const groupedForecast: { [dateKey: string]: ForecastDay } = {};
+    const groupedForecast: Record<string, ForecastDay> = {};
     const uniqueDays = new Set<string>();
 
     for (const item of forecast.list) {
       const date = new Date(item.dt * 1000);
       const dateKey = format(startOfDay(date), 'yyyy-MM-dd');
 
-      // Only process if we don't have 3 unique days yet
       if (uniqueDays.size >= 3) continue;
 
       if (!groupedForecast[dateKey]) {
@@ -56,8 +74,14 @@ export const fetchWeatherByCity = async (city: string): Promise<WeatherData> => 
         };
         uniqueDays.add(dateKey);
       } else {
-        groupedForecast[dateKey].minTemp = Math.min(groupedForecast[dateKey].minTemp, item.main.temp_min);
-        groupedForecast[dateKey].maxTemp = Math.max(groupedForecast[dateKey].maxTemp, item.main.temp_max);
+        groupedForecast[dateKey].minTemp = Math.min(
+          groupedForecast[dateKey].minTemp,
+          item.main.temp_min
+        );
+        groupedForecast[dateKey].maxTemp = Math.max(
+          groupedForecast[dateKey].maxTemp,
+          item.main.temp_max
+        );
       }
     }
 
@@ -66,23 +90,7 @@ export const fetchWeatherByCity = async (city: string): Promise<WeatherData> => 
       .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
 
     // Ensure we have exactly 3 days
-    if (forecastDays.length < 3) {
-      const lastDay = forecastDays[forecastDays.length - 1];
-      const lastDate = new Date(lastDay.date);
-      
-      while (forecastDays.length < 3) {
-        const newDate = new Date(lastDate);
-        newDate.setDate(newDate.getDate() + (forecastDays.length));
-        
-        forecastDays.push({
-          ...lastDay,
-          date: newDate.toISOString(),
-          day: formatDayName(newDate.toISOString())
-        });
-      }
-    } else if (forecastDays.length > 3) {
-      forecastDays = forecastDays.slice(0, 3);
-    }
+    forecastDays = normalizeForecastDays(forecastDays);
 
     // 4. Transform data
     const transformedData: WeatherData = {
@@ -109,13 +117,35 @@ export const fetchWeatherByCity = async (city: string): Promise<WeatherData> => 
     return transformedData;
   } catch (error) {
     console.error('Weather API Error:', error);
-    throw new Error(
-      error instanceof Error ? error.message : 'Failed to fetch weather data'
-    );
+    throw error instanceof Error ? error : new Error('Failed to fetch weather data');
   }
 };
 
-// Helpers remain exactly the same
+// Helper function to ensure exactly 3 forecast days
+function normalizeForecastDays(days: ForecastDay[]): ForecastDay[] {
+  if (days.length === 3) return days;
+  
+  if (days.length < 3) {
+    const lastDay = days[days.length - 1];
+    const lastDate = new Date(lastDay.date);
+    
+    while (days.length < 3) {
+      const newDate = new Date(lastDate);
+      newDate.setDate(newDate.getDate() + days.length);
+      
+      days.push({
+        ...lastDay,
+        date: newDate.toISOString(),
+        day: formatDayName(newDate.toISOString())
+      });
+    }
+    return days;
+  }
+  
+  return days.slice(0, 3);
+}
+
+// Utility functions
 function degToCompass(deg: number): string {
   const directions = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
   return directions[Math.round(deg / 45) % 8];
