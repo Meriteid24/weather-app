@@ -22,7 +22,7 @@ return [
     'allowed_origins' => ['http://localhost:3000',
             '             http://127.0.0.1:3000',
             '             http://localhost:8000',
-                        'https://weather-app-rose-omega-87.vercel.app/'
+                        'https://weather-app-rose-omega-87.vercel.app'
  ],
 
     'allowed_origins_patterns' => [],
