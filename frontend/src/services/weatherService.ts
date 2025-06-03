@@ -2,7 +2,7 @@ console.log('API =', process.env.NEXT_PUBLIC_API_URL);
 import { WeatherData, ForecastDay } from "@/types/weather";
 import { format, startOfDay } from "date-fns";
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL;
+const API_URL = "https://weather-app-hqyy.onrender.com/api";
 const API = process.env.NEXT_PUBLIC_API_URL;
 
 fetch(`${API}/weather`)
