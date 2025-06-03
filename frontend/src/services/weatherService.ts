@@ -1,3 +1,4 @@
+console.log('API =', process.env.NEXT_PUBLIC_API_URL);
 import { WeatherData, ForecastDay } from "@/types/weather";
 import { format, startOfDay } from "date-fns";
 
