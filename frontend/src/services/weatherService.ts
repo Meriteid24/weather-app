@@ -3,7 +3,7 @@ import { WeatherData, ForecastDay } from "@/types/weather";
 import { format, startOfDay } from "date-fns";
 
 // Single source of truth for API URL
-const BASE_API_URL = process.env.NEXT_PUBLIC_API_URL || "https://weather-app-hqyy.onrender.com";
+const BASE_API_URL = process.env.NEXT_PUBLIC_API_URL || "https://weather-app-hqyy.onrender.com/api";
 
 // Helper function for API calls
 async function fetchApi<T>(endpoint: string, params?: Record<string, string>): Promise<T> {
