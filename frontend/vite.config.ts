@@ -6,8 +6,8 @@ import type { ServerResponse, IncomingMessage, ClientRequest } from "http";
 
 export default defineConfig(({ mode }) => ({
   server: {
-    host: "127.0.0.1",
-    port: 3000,
+    host: true,
+    port: parseInt(process.env.PORT || '5173'),
     strictPort: true,
     cors: true,
     proxy: {
@@ -64,6 +64,7 @@ export default defineConfig(({ mode }) => ({
       // Add other dependencies that need optimization
     ],
   },
+  
   build: {
     outDir: 'dist',
     emptyOutDir: true,
