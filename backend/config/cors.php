@@ -1,16 +1,14 @@
 <?php
-
 return [
-    'paths' => ['api/*', 'sanctum/csrf-cookie', 'geocode', 'weather'],
-    'allowed_methods' => ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    'paths' => ['api/*', 'geocode', 'weather'],
+    'allowed_methods' => ['*'],
     'allowed_origins' => [
-        env('FRONTEND_URL', 'http://localhost:3000'),
-        'https://weather-5z0gwj4uw-meriteid24s-projects.vercel.app'
+        'https://weather-jywk8mzu8-meriteid24s-projects.vercel.app',
+        'https://*.vercel.app',
+        'http://localhost:5173',
+        'http://localhost:3000'
     ],
-    'allowed_origins_patterns' => [
-        'https://weather-.*\.vercel\.app',
-        'https://weather-app-.*\.vercel\.app'
-    ],
+    'allowed_origins_patterns' => [],
     'allowed_headers' => ['*'],
     'exposed_headers' => [],
     'max_age' => 0,

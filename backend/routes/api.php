@@ -16,6 +16,9 @@ use App\Http\Controllers\WeatherController;
 | be assigned to the "api" middleware group. Make something great!
 |
 */
+Route::get('/geocode', [WeatherController::class, 'geocode'])->middleware('cors');
+Route::get('/weather', [WeatherController::class, 'weather'])->middleware('cors');
+
 
 Route::get('/test', function () {
     return response()->json(['message' => 'API Connected!']);
