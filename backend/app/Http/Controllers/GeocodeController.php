@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Http;
 
 class GeocodeController extends Controller
 {
@@ -11,14 +12,19 @@ class GeocodeController extends Controller
         $city = $request->query('city');
 
         if (!$city) {
-            return response()->json(['error' => 'City parameter is required'], 400);
+            return response()->json(['error' => 'City is required'], 400);
         }
 
-        // Example: hardcoded coordinates for Nairobi
-        return response()->json([
-            'lat' => -1.2921,
-            'lon' => 36.8219,
-            'city' => $city
+        $response = Http::get("https://api.openweathermap.org/geo/1.0/direct", [
+            'q' => $city,
+            'limit' => 1,
+            'appid' => env('OPENWEATHERMAP_API_KEY')
         ]);
+
+        if ($response->failed()) {
+            return response()->json(['error' => 'Failed to fetch geocode'], 500);
+        }
+
+        return response()->json($response->json());
     }
 }

@@ -34,7 +34,7 @@ export default defineConfig(({ mode }) => ({
         },
       },
       '/broadcasting': {
-        target: 'http://127.0.0.1:8000',
+        target: 'https://weather-app-hqyy.onrender.com',
         ws: true,
         secure: false,
       },
