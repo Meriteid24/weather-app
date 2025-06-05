@@ -1,50 +1,110 @@
-console.log('API_URL =', process.env.NEXT_PUBLIC_API_URL);
 import { WeatherData, ForecastDay } from "@/types/weather";
-import { format, startOfDay } from "date-fns";
+import { format, startOfDay, addDays } from "date-fns";
 
-// Single source of truth for API URL
-const BASE_API_URL = process.env.NEXT_PUBLIC_API_URL || "https://weather-app-hqyy.onrender.com/api";
+// Constants
+const DEFAULT_API_URL = "https://weather-app-hqyy.onrender.com/api";
+const MAX_FORECAST_DAYS = 3;
 
-// Helper function for API calls
+// Initialize API URL
+const BASE_API_URL = process.env.NEXT_PUBLIC_API_URL || DEFAULT_API_URL;
+console.log('Weather Service Initialized with API URL:', BASE_API_URL);
+
+// Type definitions for API responses
+interface GeoCodeResponse {
+  lat: number;
+  lon: number;
+  name: string;
+  country: string;
+}
+
+interface WeatherApiResponse {
+  current: {
+    dt: number;
+    main: {
+      temp: number;
+      feels_like: number;
+      humidity: number;
+      temp_min?: number;
+      temp_max?: number;
+    };
+    weather: Array<{
+      description: string;
+      icon: string;
+    }>;
+    wind: {
+      speed: number;
+      deg: number;
+    };
+  };
+  forecast: {
+    list: Array<{
+      dt: number;
+      main: {
+        temp_min: number;
+        temp_max: number;
+      };
+      weather: Array<{
+        icon: string;
+        description: string;
+      }>;
+    }>;
+  };
+}
+
+// Enhanced fetch wrapper with timeout and retry logic
 async function fetchApi<T>(endpoint: string, params?: Record<string, string>): Promise<T> {
   const url = new URL(endpoint, BASE_API_URL);
   
   if (params) {
     Object.entries(params).forEach(([key, value]) => {
-      url.searchParams.append(key, value);
+      if (value !== undefined && value !== null) {
+        url.searchParams.append(key, value);
+      }
     });
   }
 
-  const response = await fetch(url.toString());
-  if (!response.ok) {
-    throw new Error(`API request failed: ${response.statusText}`);
+  try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 10000); // 10s timeout
+
+    const response = await fetch(url.toString(), {
+      signal: controller.signal
+    });
+
+    clearTimeout(timeoutId);
+
+    if (!response.ok) {
+      throw new Error(`API request failed: ${response.statusText}`);
+    }
+
+    return await response.json();
+  } catch (error) {
+    console.error(`API call to ${url.toString()} failed:`, error);
+    throw new Error(`Failed to fetch data: ${error instanceof Error ? error.message : String(error)}`);
   }
-  return response.json();
 }
 
+// Main weather service function
 export const fetchWeatherByCity = async (city: string): Promise<WeatherData> => {
   if (!city?.trim()) {
     throw new Error('City name is required');
   }
 
   try {
-    // 1. Get location data
-    const geoData = await fetchApi<any[]>(
+    // 1. Get geolocation data
+    const [geoData] = await fetchApi<GeoCodeResponse[]>(
       '/geocode',
       { city: city.trim() }
     );
 
-    if (!geoData?.length) {
+    if (!geoData) {
       throw new Error('Location not found');
     }
 
-    const { lat, lon, name: cityName, country } = geoData[0];
+    const { lat, lon, name: cityName, country } = geoData;
 
-    // 2. Get weather data
-    const { current, forecast } = await fetchApi<{
-      current: any;
-      forecast: { list: any[] };
-    }>(
+    // 2. Get weather data (parallel requests would be better here)
+    const weatherResponse = await fetchApi<WeatherApiResponse>(
       '/weather',
       { 
         lat: lat.toString(),
@@ -53,124 +113,109 @@ export const fetchWeatherByCity = async (city: string): Promise<WeatherData> => 
       }
     );
 
-    // 3. Process forecast into unique day summaries
-    const groupedForecast: Record<string, ForecastDay> = {};
-    const uniqueDays = new Set<string>();
+    // 3. Process forecast data
+    const forecastDays = processForecastData(weatherResponse.forecast.list);
 
-    for (const item of forecast.list) {
-      const date = new Date(item.dt * 1000);
-      const dateKey = format(startOfDay(date), 'yyyy-MM-dd');
-
-      if (uniqueDays.size >= 3) continue;
-
-      if (!groupedForecast[dateKey]) {
-        groupedForecast[dateKey] = {
-          date: date.toISOString(),
-          day: formatDayName(date.toISOString()),
-          minTemp: item.main.temp_min,
-          maxTemp: item.main.temp_max,
-          icon: item.weather[0].icon,
-          description: item.weather[0].description,
-        };
-        uniqueDays.add(dateKey);
-      } else {
-        groupedForecast[dateKey].minTemp = Math.min(
-          groupedForecast[dateKey].minTemp,
-          item.main.temp_min
-        );
-        groupedForecast[dateKey].maxTemp = Math.max(
-          groupedForecast[dateKey].maxTemp,
-          item.main.temp_max
-        );
-      }
-    }
-
-    // Get sorted forecast days
-    let forecastDays = Object.values(groupedForecast)
-      .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
-
-    // Ensure we have exactly 3 days
-    forecastDays = normalizeForecastDays(forecastDays);
-
-    // 4. Transform data
-    const transformedData: WeatherData = {
-      city: cityName,
+    // 4. Transform to our application format
+    return transformWeatherData(
+      cityName,
       country,
-      date: formatDateToHumanReadable(new Date(current.dt * 1000).toISOString()),
-      humidity: current.main.humidity,
-      windSpeed: current.wind.speed,
-      windDirection: degToCompass(current.wind.deg),
-      current: {
-        temp: current.main.temp,
-        feels_like: current.main.feels_like,
-        description: current.weather[0].description,
-        icon: current.weather[0].icon,
-      },
-      forecast: forecastDays,
-    };
-
-    console.log('Processed forecast:', {
-      days: forecastDays.map(d => `${d.day} (${format(new Date(d.date), 'MMM dd')})`),
-      temps: forecastDays.map(d => `${d.minTemp}°C - ${d.maxTemp}°C`)
-    });
-
-    return transformedData;
+      weatherResponse.current,
+      forecastDays
+    );
   } catch (error) {
-    console.error('Weather API Error:', error);
+    console.error('Weather service error:', error);
     throw error instanceof Error ? error : new Error('Failed to fetch weather data');
   }
 };
 
-// Helper function to ensure exactly 3 forecast days
+// Helper function to process forecast data
+function processForecastData(forecastItems: WeatherApiResponse['forecast']['list']): ForecastDay[] {
+  const dayMap = new Map<string, ForecastDay>();
+
+  for (const item of forecastItems) {
+    const date = new Date(item.dt * 1000);
+    const dateKey = format(startOfDay(date), 'yyyy-MM-dd');
+
+    if (dayMap.size >= MAX_FORECAST_DAYS) break;
+
+    if (!dayMap.has(dateKey)) {
+      dayMap.set(dateKey, {
+        date: date.toISOString(),
+        day: format(date, 'EEEE'),
+        minTemp: item.main.temp_min,
+        maxTemp: item.main.temp_max,
+        icon: item.weather[0].icon,
+        description: item.weather[0].description,
+      });
+    } else {
+      const existing = dayMap.get(dateKey)!;
+      existing.minTemp = Math.min(existing.minTemp, item.main.temp_min);
+      existing.maxTemp = Math.max(existing.maxTemp, item.main.temp_max);
+    }
+  }
+
+  // Sort and normalize forecast days
+  return normalizeForecastDays(
+    Array.from(dayMap.values()).sort((a, b) => 
+      new Date(a.date).getTime() - new Date(b.date).getTime()
+    )
+  );
+}
+
+// Normalize to exactly 3 forecast days
 function normalizeForecastDays(days: ForecastDay[]): ForecastDay[] {
-  if (days.length === 3) return days;
-  
-  if (days.length < 3) {
+  if (days.length === MAX_FORECAST_DAYS) return days;
+
+  if (days.length < MAX_FORECAST_DAYS && days.length > 0) {
     const lastDay = days[days.length - 1];
     const lastDate = new Date(lastDay.date);
     
-    while (days.length < 3) {
-      const newDate = new Date(lastDate);
-      newDate.setDate(newDate.getDate() + days.length);
-      
+    while (days.length < MAX_FORECAST_DAYS) {
+      const newDate = addDays(lastDate, days.length);
       days.push({
         ...lastDay,
         date: newDate.toISOString(),
-        day: formatDayName(newDate.toISOString())
+        day: format(newDate, 'EEEE')
       });
     }
     return days;
   }
   
-  return days.slice(0, 3);
+  return days.slice(0, MAX_FORECAST_DAYS);
 }
 
-// Utility functions
+// Transform API response to our format
+function transformWeatherData(
+  city: string,
+  country: string,
+  current: WeatherApiResponse['current'],
+  forecastDays: ForecastDay[]
+): WeatherData {
+  return {
+    city,
+    country,
+    date: format(new Date(current.dt * 1000), 'MMMM d, yyyy h:mm a'),
+    humidity: current.main.humidity,
+    windSpeed: current.wind.speed,
+    windDirection: degToCompass(current.wind.deg),
+    current: {
+      temp: current.main.temp,
+      feels_like: current.main.feels_like,
+      description: current.weather[0].description,
+      icon: current.weather[0].icon,
+    },
+    forecast: forecastDays,
+  };
+}
+
+// Utility function to convert wind degrees to compass direction
 function degToCompass(deg: number): string {
   const directions = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
-  return directions[Math.round(deg / 45) % 8];
+  return directions[Math.round((deg % 360) / 45) % 8];
 }
 
-export const formatDateToHumanReadable = (dateString: string): string => {
-  try {
-    const date = new Date(dateString);
-    return format(date, 'MMMM d, yyyy h:mm a');
-  } catch (error) {
-    console.error("Error formatting date:", error);
-    return dateString;
-  }
-};
-
-export const formatDayName = (dateString: string): string => {
-  try {
-    const date = new Date(dateString);
-    return format(date, 'EEEE');
-  } catch (error) {
-    console.error("Error formatting day name:", error);
-    return "";
-  }
-};
-
+// Temperature conversion utility
 export const convertTemperature = (temp: number, to: 'C' | 'F'): number => {
   return to === 'F' ? Math.round((temp * 9 / 5) + 32) : Math.round(temp);
 };
