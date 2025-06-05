@@ -33,4 +33,9 @@ Route::middleware(['cors'])->group(function () {
     
     // Weather endpoint
     Route::get('/weather', [WeatherController::class, 'getWeather']);
+    Route::get('/test-http', function () {
+    $res = Http::get('https://httpbin.org/get');
+    return $res->body();
+});
+
 });
