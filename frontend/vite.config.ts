@@ -12,9 +12,9 @@ export default defineConfig(({ mode }) => ({
     cors: true,
     proxy: {
       '/api': {
-        target: 'http://127.0.0.1:8000',
+        target: 'https://weather-app-hqyy.onrender.com', // Updated to external weather API
         changeOrigin: true,
-        secure: false,
+        secure: true, // Changed to true for HTTPS
         rewrite: (path) => path.replace(/^\/api/, '/api'),
         configure: (proxy) => {
           proxy.on('error', (err: Error, req: IncomingMessage, res: ServerResponse) => {
@@ -26,7 +26,9 @@ export default defineConfig(({ mode }) => ({
           });
           proxy.on('proxyReq', (proxyReq: ClientRequest) => {
             console.log('Proxying:', proxyReq.method, proxyReq.path);
-            proxyReq.setHeader('X-Forwarded-Host', 'localhost:3000');
+            proxyReq.setHeader('X-Forwarded-Host', 'localhost:5173');
+            // Add headers to help with CORS
+            proxyReq.setHeader('Origin', 'https://weather-app-hqyy.onrender.com');
           });
           proxy.on('proxyRes', (proxyRes: IncomingMessage, req: IncomingMessage) => {
             console.log('Received:', proxyRes.statusCode, req.url);
@@ -36,7 +38,7 @@ export default defineConfig(({ mode }) => ({
       '/broadcasting': {
         target: 'https://weather-app-hqyy.onrender.com',
         ws: true,
-        secure: false,
+        secure: true, // Changed to true for HTTPS
       },
     },
   },

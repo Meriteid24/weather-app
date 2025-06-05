@@ -2,11 +2,13 @@ import { WeatherData, ForecastDay } from "@/types/weather";
 import { format, startOfDay, addDays } from "date-fns";
 
 // Constants
-const DEFAULT_API_URL = "https://weather-app-hqyy.onrender.com/api";
+const DEFAULT_API_URL = "/api"; // Use proxy in development
 const MAX_FORECAST_DAYS = 3;
 
-// Initialize API URL
-const BASE_API_URL = process.env.NEXT_PUBLIC_API_URL || DEFAULT_API_URL;
+// Initialize API URL - use proxy in development, direct URL in production
+const BASE_API_URL = import.meta.env.VITE_API_URL || (
+  import.meta.env.DEV ? DEFAULT_API_URL : "https://weather-app-hqyy.onrender.com/api"
+);
 console.log('Weather Service Initialized with API URL:', BASE_API_URL);
 
 // Type definitions for API responses
@@ -53,7 +55,15 @@ interface WeatherApiResponse {
 
 // Enhanced fetch wrapper with timeout and retry logic
 async function fetchApi<T>(endpoint: string, params?: Record<string, string>): Promise<T> {
-  const url = new URL(endpoint, BASE_API_URL);
+  // Handle relative URLs for proxy
+  let url: URL;
+  if (BASE_API_URL.startsWith('http')) {
+    url = new URL(endpoint, BASE_API_URL);
+  } else {
+    // For relative paths like "/api", construct the full URL
+    const baseUrl = `${window.location.protocol}//${window.location.host}${BASE_API_URL}`;
+    url = new URL(endpoint, baseUrl);
+  }
   
   if (params) {
     Object.entries(params).forEach(([key, value]) => {
@@ -65,22 +75,34 @@ async function fetchApi<T>(endpoint: string, params?: Record<string, string>): P
 
   try {
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 10000); // 10s timeout
+    const timeoutId = setTimeout(() => controller.abort(), 15000); // Increased timeout for slow API
 
     const response = await fetch(url.toString(), {
-      signal: controller.signal
+      signal: controller.signal,
+      headers: {
+        'Content-Type': 'application/json',
+      }
     });
 
     clearTimeout(timeoutId);
 
     if (!response.ok) {
-      throw new Error(`API request failed: ${response.statusText}`);
+      const errorText = await response.text().catch(() => 'Unknown error');
+      throw new Error(`API request failed (${response.status}): ${errorText}`);
     }
 
     return await response.json();
   } catch (error) {
     console.error(`API call to ${url.toString()} failed:`, error);
-    throw new Error(`Failed to fetch data: ${error instanceof Error ? error.message : String(error)}`);
+    
+    if (error instanceof Error) {
+      if (error.name === 'AbortError') {
+        throw new Error('Request timed out. Please try again.');
+      }
+      throw new Error(`Failed to fetch data: ${error.message}`);
+    }
+    
+    throw new Error('Failed to fetch data: Unknown error');
   }
 }
 
@@ -91,19 +113,24 @@ export const fetchWeatherByCity = async (city: string): Promise<WeatherData> => 
   }
 
   try {
+    console.log(`Fetching weather for: ${city}`);
+    
     // 1. Get geolocation data
-    const [geoData] = await fetchApi<GeoCodeResponse[]>(
+    const geoResponse = await fetchApi<GeoCodeResponse[]>(
       '/geocode',
       { city: city.trim() }
     );
 
-    if (!geoData) {
-      throw new Error('Location not found');
+    if (!geoResponse || geoResponse.length === 0) {
+      throw new Error(`Location "${city}" not found. Please check the spelling and try again.`);
     }
 
+    const geoData = geoResponse[0];
     const { lat, lon, name: cityName, country } = geoData;
+    
+    console.log(`Found location: ${cityName}, ${country} (${lat}, ${lon})`);
 
-    // 2. Get weather data (parallel requests would be better here)
+    // 2. Get weather data
     const weatherResponse = await fetchApi<WeatherApiResponse>(
       '/weather',
       { 
@@ -125,7 +152,21 @@ export const fetchWeatherByCity = async (city: string): Promise<WeatherData> => 
     );
   } catch (error) {
     console.error('Weather service error:', error);
-    throw error instanceof Error ? error : new Error('Failed to fetch weather data');
+    
+    if (error instanceof Error) {
+      // Re-throw with more user-friendly messages
+      if (error.message.includes('not found')) {
+        throw error; // Keep location not found messages as-is
+      }
+      if (error.message.includes('timed out')) {
+        throw new Error('The weather service is taking too long to respond. Please try again.');
+      }
+      if (error.message.includes('500')) {
+        throw new Error('The weather service is temporarily unavailable. Please try again later.');
+      }
+    }
+    
+    throw new Error('Unable to fetch weather data. Please check your internet connection and try again.');
   }
 };
 
