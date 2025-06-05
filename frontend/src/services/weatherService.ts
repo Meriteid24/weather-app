@@ -2,88 +2,100 @@ import { WeatherData, ForecastDay } from "@/types/weather";
 import { format, startOfDay, addDays } from "date-fns";
 
 // Constants
-const DEFAULT_API_URL = "/api"; // Use proxy in development
+const API_KEY = import.meta.env.VITE_OPENWEATHER_API_KEY;
+const BASE_API_URL = "https://api.openweathermap.org/data/2.5";
 const MAX_FORECAST_DAYS = 3;
 
-// Initialize API URL - use proxy in development, direct URL in production
-const BASE_API_URL = import.meta.env.VITE_API_URL || (
-  import.meta.env.DEV ? DEFAULT_API_URL : "https://weather-app-hqyy.onrender.com/api"
-);
-console.log('Weather Service Initialized with API URL:', BASE_API_URL);
+if (!API_KEY) {
+  console.error('OpenWeather API key is missing. Please set VITE_OPENWEATHER_API_KEY in your environment variables.');
+}
 
-// Type definitions for API responses
+// Type definitions for OpenWeather API responses
 interface GeoCodeResponse {
   lat: number;
   lon: number;
   name: string;
   country: string;
+  state?: string;
 }
 
-interface WeatherApiResponse {
-  current: {
+interface CurrentWeatherResponse {
+  dt: number;
+  main: {
+    temp: number;
+    feels_like: number;
+    humidity: number;
+    temp_min: number;
+    temp_max: number;
+    pressure: number;
+  };
+  weather: Array<{
+    id: number;
+    main: string;
+    description: string;
+    icon: string;
+  }>;
+  wind: {
+    speed: number;
+    deg: number;
+    gust?: number;
+  };
+  sys: {
+    country: string;
+  };
+  name: string;
+}
+
+interface ForecastResponse {
+  list: Array<{
     dt: number;
     main: {
       temp: number;
       feels_like: number;
+      temp_min: number;
+      temp_max: number;
+      pressure: number;
       humidity: number;
-      temp_min?: number;
-      temp_max?: number;
     };
     weather: Array<{
+      id: number;
+      main: string;
       description: string;
       icon: string;
     }>;
     wind: {
       speed: number;
       deg: number;
+      gust?: number;
     };
-  };
-  forecast: {
-    list: Array<{
-      dt: number;
-      main: {
-        temp_min: number;
-        temp_max: number;
-      };
-      weather: Array<{
-        icon: string;
-        description: string;
-      }>;
-    }>;
+    dt_txt: string;
+  }>;
+  city: {
+    name: string;
+    country: string;
   };
 }
 
 // Enhanced fetch wrapper with timeout and retry logic
-async function fetchApi<T>(endpoint: string, params?: Record<string, string>): Promise<T> {
-  // Construct the full URL properly
-  let url: string;
+async function fetchOpenWeather<T>(endpoint: string, params: Record<string, string>): Promise<T> {
+  const url = new URL(`${BASE_API_URL}${endpoint}`);
   
-  if (BASE_API_URL.startsWith('http')) {
-    // For production: BASE_API_URL already includes /api
-    // Just append the endpoint directly
-    url = `${BASE_API_URL}${endpoint}`;
-  } else {
-    // For development proxy
-    const baseUrl = `${window.location.protocol}//${window.location.host}${BASE_API_URL}`;
-    url = `${baseUrl}${endpoint}`;
-  }
+  // Add API key and default parameters
+  url.searchParams.append('appid', API_KEY);
+  url.searchParams.append('units', 'metric');
   
   // Add query parameters
-  if (params) {
-    const urlObj = new URL(url);
-    Object.entries(params).forEach(([key, value]) => {
-      if (value !== undefined && value !== null) {
-        urlObj.searchParams.append(key, value);
-      }
-    });
-    url = urlObj.toString();
-  }
+  Object.entries(params).forEach(([key, value]) => {
+    if (value !== undefined && value !== null) {
+      url.searchParams.append(key, value);
+    }
+  });
 
   try {
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 15000); // Increased timeout for slow API
+    const timeoutId = setTimeout(() => controller.abort(), 15000);
 
-    const response = await fetch(url, {
+    const response = await fetch(url.toString(), {
       signal: controller.signal,
       headers: {
         'Content-Type': 'application/json',
@@ -93,22 +105,23 @@ async function fetchApi<T>(endpoint: string, params?: Record<string, string>): P
     clearTimeout(timeoutId);
 
     if (!response.ok) {
-      const errorText = await response.text().catch(() => 'Unknown error');
-      throw new Error(`API request failed (${response.status}): ${errorText}`);
+      const errorData = await response.json().catch(() => null);
+      const errorMessage = errorData?.message || await response.text().catch(() => 'Unknown error');
+      throw new Error(`OpenWeather API request failed (${response.status}): ${errorMessage}`);
     }
 
     return await response.json();
   } catch (error) {
-    console.error(`API call to ${url} failed:`, error);
+    console.error(`OpenWeather API call to ${url.toString()} failed:`, error);
     
     if (error instanceof Error) {
       if (error.name === 'AbortError') {
         throw new Error('Request timed out. Please try again.');
       }
-      throw new Error(`Failed to fetch data: ${error.message}`);
+      throw new Error(`Failed to fetch weather data: ${error.message}`);
     }
     
-    throw new Error('Failed to fetch data: Unknown error');
+    throw new Error('Failed to fetch weather data: Unknown error');
   }
 }
 
@@ -122,9 +135,9 @@ export const fetchWeatherByCity = async (city: string): Promise<WeatherData> => 
     console.log(`Fetching weather for: ${city}`);
     
     // 1. Get geolocation data
-    const geoResponse = await fetchApi<GeoCodeResponse[]>(
-      '/geocode',
-      { city: city.trim() }
+    const geoResponse = await fetchOpenWeather<GeoCodeResponse[]>(
+      '/geo/1.0/direct',
+      { q: city.trim(), limit: '1' }
     );
 
     if (!geoResponse || geoResponse.length === 0) {
@@ -136,24 +149,32 @@ export const fetchWeatherByCity = async (city: string): Promise<WeatherData> => 
     
     console.log(`Found location: ${cityName}, ${country} (${lat}, ${lon})`);
 
-    // 2. Get weather data
-    const weatherResponse = await fetchApi<WeatherApiResponse>(
+    // 2. Get current weather data
+    const currentWeather = await fetchOpenWeather<CurrentWeatherResponse>(
       '/weather',
       { 
         lat: lat.toString(),
         lon: lon.toString(),
-        units: 'metric'
       }
     );
 
-    // 3. Process forecast data
-    const forecastDays = processForecastData(weatherResponse.forecast.list);
+    // 3. Get forecast data
+    const forecastResponse = await fetchOpenWeather<ForecastResponse>(
+      '/forecast',
+      { 
+        lat: lat.toString(),
+        lon: lon.toString(),
+      }
+    );
 
-    // 4. Transform to our application format
+    // 4. Process forecast data
+    const forecastDays = processForecastData(forecastResponse.list);
+
+    // 5. Transform to our application format
     return transformWeatherData(
       cityName,
       country,
-      weatherResponse.current,
+      currentWeather,
       forecastDays
     );
   } catch (error) {
@@ -167,7 +188,10 @@ export const fetchWeatherByCity = async (city: string): Promise<WeatherData> => 
       if (error.message.includes('timed out')) {
         throw new Error('The weather service is taking too long to respond. Please try again.');
       }
-      if (error.message.includes('500')) {
+      if (error.message.includes('401')) {
+        throw new Error('Weather service authentication failed. Please contact support.');
+      }
+      if (error.message.includes('500') || error.message.includes('502') || error.message.includes('503')) {
         throw new Error('The weather service is temporarily unavailable. Please try again later.');
       }
     }
@@ -177,7 +201,7 @@ export const fetchWeatherByCity = async (city: string): Promise<WeatherData> => 
 };
 
 // Helper function to process forecast data
-function processForecastData(forecastItems: WeatherApiResponse['forecast']['list']): ForecastDay[] {
+function processForecastData(forecastItems: ForecastResponse['list']): ForecastDay[] {
   const dayMap = new Map<string, ForecastDay>();
 
   for (const item of forecastItems) {
@@ -236,7 +260,7 @@ function normalizeForecastDays(days: ForecastDay[]): ForecastDay[] {
 function transformWeatherData(
   city: string,
   country: string,
-  current: WeatherApiResponse['current'],
+  current: CurrentWeatherResponse,
   forecastDays: ForecastDay[]
 ): WeatherData {
   return {
