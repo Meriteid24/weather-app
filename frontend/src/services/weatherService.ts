@@ -55,29 +55,35 @@ interface WeatherApiResponse {
 
 // Enhanced fetch wrapper with timeout and retry logic
 async function fetchApi<T>(endpoint: string, params?: Record<string, string>): Promise<T> {
-  // Handle relative URLs for proxy
-  let url: URL;
+  // Construct the full URL properly
+  let url: string;
+  
   if (BASE_API_URL.startsWith('http')) {
-    url = new URL(endpoint, BASE_API_URL);
+    // For production: BASE_API_URL already includes /api
+    // Just append the endpoint directly
+    url = `${BASE_API_URL}${endpoint}`;
   } else {
-    // For relative paths like "/api", construct the full URL
+    // For development proxy
     const baseUrl = `${window.location.protocol}//${window.location.host}${BASE_API_URL}`;
-    url = new URL(endpoint, baseUrl);
+    url = `${baseUrl}${endpoint}`;
   }
   
+  // Add query parameters
   if (params) {
+    const urlObj = new URL(url);
     Object.entries(params).forEach(([key, value]) => {
       if (value !== undefined && value !== null) {
-        url.searchParams.append(key, value);
+        urlObj.searchParams.append(key, value);
       }
     });
+    url = urlObj.toString();
   }
 
   try {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 15000); // Increased timeout for slow API
 
-    const response = await fetch(url.toString(), {
+    const response = await fetch(url, {
       signal: controller.signal,
       headers: {
         'Content-Type': 'application/json',
@@ -93,7 +99,7 @@ async function fetchApi<T>(endpoint: string, params?: Record<string, string>): P
 
     return await response.json();
   } catch (error) {
-    console.error(`API call to ${url.toString()} failed:`, error);
+    console.error(`API call to ${url} failed:`, error);
     
     if (error instanceof Error) {
       if (error.name === 'AbortError') {
