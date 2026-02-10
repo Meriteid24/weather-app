@@ -10,7 +10,9 @@ interface ForecastSectionProps {
 }
 
 export default function ForecastSection({ forecast, unit, displayTemp }: ForecastSectionProps) {
-  // Ensure we only show exactly 3 forecast days
+   if (!forecast || !Array.isArray(forecast)) {
+    return null;
+  }
   const displayForecast = forecast.slice(0, 3);
   
   return (

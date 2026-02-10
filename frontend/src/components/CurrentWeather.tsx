@@ -5,12 +5,15 @@ import { getWeatherIcon, getTempColorClass, getTempTextColorClass } from "@/util
 import { Card, CardContent } from "@/components/ui/card";
 
 interface CurrentWeatherProps {
-  data: WeatherData;
+  data: WeatherData |null;
   unit: TemperatureUnit;
   displayTemp: (temp: number) => number;
 }
 
 export default function CurrentWeather({ data, unit, displayTemp }: CurrentWeatherProps) {
+   if (!data || !data.current || !data.forecast) {
+    return null;
+  }
   return (
     <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
       <Card className="border-none shadow-lg overflow-hidden bg-gradient-to-br from-blue-500 to-blue-600 text-white">
